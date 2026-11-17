@@ -3,7 +3,7 @@
 Refreshes run in a background thread (the hub gives status hooks a few
 seconds) and one at a time. If the site can't be read or yields no events,
 nothing is published, so the previous revision stays live, and the error is
-recorded for the page and tile.
+recorded for the page.
 """
 import datetime
 import hashlib
