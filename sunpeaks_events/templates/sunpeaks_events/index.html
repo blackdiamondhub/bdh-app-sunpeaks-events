@@ -1,0 +1,68 @@
+{% extends "base.html" %}
+{% load static %}
+
+{% block title %}Sun Peaks Events{% endblock %}
+
+{% block extra_head %}
+<style>
+  .spe { max-width: 640px; margin: 1.5rem auto; padding: 0 1rem; }
+  .spe h2 { margin-bottom: .25rem; }
+  .spe .sub { opacity: .7; margin-bottom: 1.25rem; }
+  .spe dl { display: grid; grid-template-columns: max-content 1fr; gap: .5rem 1.25rem; margin: 0 0 1.25rem; }
+  .spe dt { font-weight: 600; }
+  .spe dd { margin: 0; }
+  .spe .err { color: #c0392b; }
+  .spe .note { padding: .75rem 1rem; border-radius: 8px; background: rgba(127,127,127,.12); }
+  .spe button { padding: .5rem 1rem; border-radius: 8px; border: 0; cursor: pointer; }
+  .spe button[disabled] { opacity: .6; cursor: default; }
+  .spe .msg { margin-left: .75rem; opacity: .8; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="spe">
+  <h2><i class="fas fa-calendar-days"></i> Sun Peaks Events</h2>
+  <div class="sub">A calendar feed of events listed on
+    <a href="https://www.sunpeaksresort.com/events-things-to-do/events" target="_blank" rel="noopener">sunpeaksresort.com</a>.</div>
+  <dl>
+    <dt>Last refresh</dt>
+    <dd>{% if last_refresh %}{{ last_refresh|date:"D M j, g:i A" }}{% else %}Not yet{% endif %}{% if running %} <em>(refreshing…)</em>{% endif %}</dd>
+    <dt>Events</dt>
+    <dd>{{ events }} event{{ events|pluralize }} ({{ entries }} calendar entr{{ entries|pluralize:"y,ies" }}, {{ images }} picture{{ images|pluralize }})</dd>
+    {% if revision %}<dt>Feed revision</dt><dd>{{ revision }}</dd>{% endif %}
+    <dt>Last error</dt>
+    <dd>{% if last_error %}<span class="err">{{ last_error }}</span>{% if last_attempt %} <small>({{ last_attempt|date:"D M j, g:i A" }})</small>{% endif %}{% else %}None{% endif %}</dd>
+  </dl>
+  {% if admin %}
+  <p><button type="button" id="spe-refresh" {% if running %}disabled{% endif %}>Refresh now</button><span class="msg" id="spe-msg"></span></p>
+  {% endif %}
+  <p class="note">Share this feed with Calendar in Settings → Apps → Sun Peaks Events → Sharing.</p>
+</div>
+{% if admin %}
+<script>
+(function () {
+  const btn = document.getElementById("spe-refresh"), msg = document.getElementById("spe-msg");
+  const csrf = "{{ csrf_token }}";
+  async function poll() {
+    const r = await fetch("{% url 'sunpeaks_events_state' %}", {credentials: "same-origin"});
+    const s = await r.json();
+    if (s.running) { setTimeout(poll, 3000); } else { location.reload(); }
+  }
+  btn.addEventListener("click", async function () {
+    btn.disabled = true;
+    msg.textContent = "Refreshing…";
+    try {
+      const r = await fetch("{% url 'sunpeaks_events_refresh' %}", {
+        method: "POST", headers: {"X-CSRFToken": csrf}, credentials: "same-origin",
+      });
+      if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || "Couldn't start a refresh");
+      setTimeout(poll, 3000);
+    } catch (e) {
+      msg.textContent = e.message;
+      btn.disabled = false;
+    }
+  });
+})();
+</script>
+{% endif %}
+{% endblock %}
