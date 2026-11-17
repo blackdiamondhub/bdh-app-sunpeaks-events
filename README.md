@@ -28,8 +28,7 @@ To show the events in the hub's calendar, share the feed with Calendar in
    unchanged (ignoring `DTSTAMP`) nothing is published.
 
 If the list can't be read, or no events are found, nothing is published: the
-previous revision stays live and the error shows on the app page and the
-tile. Event pages that fail are skipped (counted as "skipped").
+previous revision stays live and the error shows on the app page. Event pages that fail are skipped (counted as "skipped").
 
 The app is `on_demand` with `wake_every` 3 hours. It refreshes in a
 background thread when it wakes (from the status hook or the page) and the
@@ -67,11 +66,14 @@ Per `VEVENT`:
 
 Values are escaped per RFC 5545 (`\\`, `\,`, `\;`, `\n`).
 
-## Page and tile
+## Page (no tile)
+
+This is a background app: it has no home-screen tile. The hub's waker runs
+its status hook every `wake_every` (3 h), which wakes it to refresh.
 
 `/sunpeaks_events/` shows the last refresh, the number of events, calendar
 entries and pictures, the share revision and the last error. Admins get a
-**Refresh now** button. The tile shows the number of upcoming events.
+**Refresh now** button.
 
 ## Container (hub API 2)
 

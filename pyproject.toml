@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "bdh-app-sunpeaks-events"
-version = "1.0.0"
+version = "1.0.1"
 description = "Black Diamond Hub app: Sun Peaks Resort events as a shareable calendar feed"
 readme = "README.md"
 license = { text = "MIT" }
