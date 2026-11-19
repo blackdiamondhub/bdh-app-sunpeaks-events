@@ -1,5 +1,6 @@
 from bdh_sdk import PluginSpec
 from bdh_sdk.plugins import LIFECYCLE_ON_DEMAND, NETWORK_OUTBOUND
+from bdh_sdk.provides import SEASON
 
 SHARES = (
     {"name": "events", "type": "text/calendar", "title": "Sun Peaks events"},
@@ -16,6 +17,9 @@ spec = PluginSpec(
     # The events calendar (an .ics with WebP pictures) other apps can read
     # once it is shared with them in Settings.
     shares=SHARES,
+    # The date of the resort's "Winter Opening Day" event, so the hub can
+    # count down to it.
+    provides={SEASON: "sunpeaks_events.provides.season"},
     api_version=2,
     # No hub data needed.
     permissions=(),

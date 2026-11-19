@@ -26,6 +26,9 @@ STATE_KEY = "status"
 STALE_AFTER = datetime.timedelta(hours=2, minutes=30)
 # ... or sooner after a failed one.
 RETRY_AFTER = datetime.timedelta(minutes=30)
+# The resort's opening-day event, offered to the hub as the start of winter.
+OPENING_SLUG = "winter-opening-day"
+OPENING_TITLE = "winter opening day"
 
 _lock = threading.Lock()
 
@@ -62,6 +65,17 @@ def is_stale(now=None):
     return age > (RETRY_AFTER if st.get("last_error") else STALE_AFTER)
 
 
+def opening_day(events):
+    """First date of the resort's opening-day event, or None."""
+    for event in events:
+        if event.slug == OPENING_SLUG or event.title.strip().lower() == OPENING_TITLE:
+            starts = [i.start for i in event.instances]
+            if starts:
+                first = min(starts)
+                return first.date() if isinstance(first, datetime.datetime) else first
+    return None
+
+
 def _feed_hash(ics_bytes, attachments):
     """Hash of the feed ignoring DTSTAMP, so an unchanged site isn't republished."""
     h = hashlib.sha256(re.sub(rb"\r\nDTSTAMP:[^\r]*", b"", ics_bytes))
@@ -92,6 +106,8 @@ def _refresh(fetcher, image_dir, now):
         log.warning("sunpeaks_events: skipped %s", failure)
     if not events:
         return _save(last_error="No events found on the events page; the site may have changed.")
+    day = opening_day(events)
+    _save(opens_on=day.isoformat() if day else "")
 
     attachments, keys, sizes = {}, {}, []
     for event in events:
