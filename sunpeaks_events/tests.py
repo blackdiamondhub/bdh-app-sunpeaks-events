@@ -13,7 +13,7 @@ from PIL import Image
 from bdh_sdk import storage
 from bdh_sdk.testing import FakeBroker
 
-from . import ics, images, refresh, scraper
+from . import ics, images, provides, refresh, scraper
 from .plugin import SHARES
 
 FIXTURES = Path(__file__).parent / "tests"
@@ -331,6 +331,39 @@ class RefreshTests(TestCase):
         self.assertTrue(refresh.is_stale(NOW + datetime.timedelta(hours=3)))
         refresh._save(last_error="boom")
         self.assertTrue(refresh.is_stale(NOW + datetime.timedelta(minutes=45)))
+
+
+class OpeningDayTests(RefreshTests):
+    """The resort's "Winter Opening Day" event becomes the hub's winter start."""
+
+    def test_refresh_records_opening_day(self):
+        with self.broker():  # the "no-image" page is Winter Opening Day
+            st = self.run_refresh(FakeFetcher())
+            hint = provides.season()
+        self.assertEqual(st["opens_on"], "2026-11-21")
+        self.assertEqual((hint.season, hint.opens_on), ("winter", datetime.date(2026, 11, 21)))
+
+    def test_no_opening_event_means_no_hint(self):
+        with self.broker():
+            refresh._save(opens_on="2026-11-21")
+            self.assertIsNotNone(provides.season())
+            st = self.run_refresh(FakeFetcher(broken={"no-image"}))
+            hint = provides.season()
+        self.assertEqual(st["opens_on"], "")
+        self.assertIsNone(hint)
+
+    def test_opening_day_by_title_and_bad_dates(self):
+        ev = scraper.Event("opening", " Winter Opening Day ", "u", instances=[
+            scraper.Instance(datetime.datetime(2026, 11, 27, 9, tzinfo=UTC)),
+            scraper.Instance(datetime.datetime(2026, 11, 26, 18, 30, tzinfo=UTC))])
+        self.assertEqual(refresh.opening_day([event("gala"), ev]), datetime.date(2026, 11, 26))
+        self.assertIsNone(refresh.opening_day([event("gala")]))
+        self.assertIsNone(provides.build_season("not a date"))
+        self.assertIsNone(provides.build_season(None))
+
+    def test_declared_to_hub(self):
+        from .plugin import spec
+        self.assertEqual(spec.provides, {"season": "sunpeaks_events.provides.season"})
 
 
 class ViewTests(TestCase):
