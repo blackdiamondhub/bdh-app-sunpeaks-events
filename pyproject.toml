@@ -17,7 +17,7 @@ dependencies = [
 ]
 
 [project.urls]
-Source = "https://github.com/blackdiamondlodge/bdh-app-sunpeaks-events"
+Source = "https://github.com/blackdiamondhub/bdh-app-sunpeaks-events"
 
 [project.entry-points."blackdiamondhub.plugins"]
 sunpeaks_events = "sunpeaks_events.plugin:spec"
