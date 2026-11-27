@@ -13,7 +13,7 @@ from PIL import Image
 from bdh_sdk import storage
 from bdh_sdk.testing import FakeBroker
 
-from . import ics, images, provides, refresh, scraper
+from . import assistant, ics, images, provides, refresh, scraper
 from .plugin import SHARES
 
 FIXTURES = Path(__file__).parent / "tests"
@@ -395,3 +395,164 @@ class ViewTests(TestCase):
 
         st = status()
         self.assertEqual(st.text, "4 upcoming events")
+
+
+LODGE = datetime.timezone(datetime.timedelta(hours=-7))
+
+
+def at(*args):
+    return datetime.datetime(*args, tzinfo=LODGE)
+
+
+def ev(title, *instances, where="", price="", about="", kinds=(), schedule=()):
+    return scraper.Event(title.lower().replace(" ", "-"), title, "https://x/" + title, description=about,
+                         location=where, price=price, categories=list(kinds), schedule=list(schedule),
+                         instances=[scraper.Instance(*i) for i in instances])
+
+
+EVENTS = [
+    ev("Torchlight Parade", (at(2026, 12, 11, 19), at(2026, 12, 11, 20)), where="Village Day Plaza",
+       price="Free", about="Watch the ski school ski down by torchlight.", kinds=["Family"]),
+    ev("Live Music at Masa's", (at(2026, 12, 11, 21), at(2026, 12, 11, 23, 30)),
+       (at(2026, 12, 12, 21), at(2026, 12, 12, 23, 30)), (at(2026, 12, 18, 21),),
+       where="Masa's Bar + Grill", kinds=["Live Music"]),
+    ev("Artisan Market", (datetime.date(2026, 12, 11), datetime.date(2026, 12, 13)), where="Sun Peaks Centre",
+       price="Free", schedule=[("16:00", "19:00", "Friday December 11, 2026 — in the Great Hall"),
+                               ("11:00", "17:00", "Saturday December 12, 2026"),
+                               ("10:00", "16:00", "Sunday December 13, 2026")]),
+    ev("Art Show", (datetime.date(2026, 12, 10), datetime.date(2026, 12, 20)), where="Gallery"),
+    ev("Old Race", (at(2026, 12, 1, 10), at(2026, 12, 1, 12))),
+    ev("New Year's Fireworks", (at(2026, 12, 31, 21),), where="Village", kinds=["Celebrations"]),
+]
+
+
+class AssistantToolTests(TestCase):
+    """The assistant's events lookup, run the way the hub runs it (FakeBroker sessions)."""
+
+    def setUp(self):
+        from bdh_sdk import Stay, settings
+
+        storage.set_state_backend(None)
+        saved = settings._store
+        self.broker = FakeBroker(grants=("tools.*", "state.*", "shares.*"), install=True, app_id="sunpeaks_events")
+        self.broker.start()
+        self.addCleanup(settings.set_store, saved)
+        self.addCleanup(self.broker.stop)
+        self.broker.stay = Stay(guest="Smith")  # a voice session during a stay is in guest mode
+        self.now = at(2026, 12, 11, 15)  # Friday 3 pm at the lodge
+        assistant.save(EVENTS, self.now - datetime.timedelta(hours=2))
+        for target, kwargs in (("sunpeaks_events.assistant.utc_now", {"side_effect": lambda: self.now}),
+                               ("sunpeaks_events.refresh.maybe_refresh_async", {}),
+                               ("sunpeaks_events.refresh.refresh_async", {})):
+            patcher = mock.patch(target, **kwargs)
+            setattr(self, target.rsplit(".", 1)[1], patcher.start())
+            self.addCleanup(patcher.stop)
+
+    def call(self, args=None):
+        from bdh_sdk import tools as sdk_tools
+
+        self.broker.assistant_tools.clear()
+        for tool in assistant.tools(mode="guest"):
+            self.broker.add_tool(tool, lambda a, t=tool.id: assistant.run_tool(t, a, mode="guest"))
+        return sdk_tools.call_tool(sdk_tools.open_session(), "events", args)
+
+    def events(self, **args):
+        result = self.call(args)
+        self.assertTrue(result["ok"], result)
+        return result["result"]
+
+    def error(self, **args):
+        result = self.call(args)
+        self.assertFalse(result["ok"], result)
+        return result["error"]
+
+    def test_every_mode_gets_one_readonly_lookup(self):
+        from bdh_sdk import ALL_MODES, hooks
+        from .plugin import spec
+
+        for mode in sorted(ALL_MODES):
+            with self.subTest(mode=mode):
+                tools = assistant.tools(mode=mode)
+                self.assertEqual([t.id for t in tools], ["events"])
+                self.assertEqual((tools[0].modes, tools[0].readonly, tools[0].confirm), (ALL_MODES, True, False))
+                self.assertLessEqual(len(tools[0].description), 300)
+        self.assertEqual([t["id"] for t in hooks.run(spec, "tools", mode="guest")], ["events"])
+
+    def test_today_and_tonight_by_default(self):
+        self.assertEqual(self.events(), {"when": "today", "found": "4 events", "events": [
+            {"title": "Art Show", "when": "all day today", "where": "Gallery"},
+            {"title": "Artisan Market", "when": "today 4 pm to 7 pm", "where": "Sun Peaks Centre"},
+            {"title": "Torchlight Parade", "when": "tonight 7 pm to 8 pm", "where": "Village Day Plaza"},
+            {"title": "Live Music at Masa's", "when": "tonight 9 pm to 11:30 pm", "where": "Masa's Bar + Grill"},
+        ]})
+
+    def test_tonight_skips_all_day_and_gives_detail(self):
+        out = self.events(day="tonight")
+        self.assertEqual((out["when"], out["found"]), ("tonight", "3 events"))
+        self.assertEqual([e["title"] for e in out["events"]],
+                         ["Artisan Market", "Torchlight Parade", "Live Music at Masa's"])
+        self.assertEqual(out["events"][1], {"title": "Torchlight Parade", "when": "tonight 7 pm to 8 pm",
+                                            "where": "Village Day Plaza", "price": "Free",
+                                            "about": "Watch the ski school ski down by torchlight."})
+        self.now = at(2026, 12, 11, 19, 30)
+        self.assertEqual(self.events(day="tonight")["events"][0]["when"], "on now until 8 pm")
+
+    def test_weekend_groups_repeats(self):
+        out = self.events(day="this weekend")
+        self.assertEqual(out["when"], "this weekend")
+        self.assertEqual([(e["title"], e["when"]) for e in out["events"]], [
+            ("Artisan Market", "today 4 pm to 7 pm, tomorrow 11 am to 5 pm, Sunday 10 am to 4 pm"),
+            ("Torchlight Parade", "tonight 7 pm to 8 pm"),
+            ("Live Music at Masa's", "tonight 9 pm to 11:30 pm, tomorrow 9 pm to 11:30 pm"),
+            ("Art Show", "all day tomorrow, all day Sunday"),
+        ])
+
+    def test_query_and_next_one(self):
+        self.assertEqual([e["title"] for e in self.events(query="live music")["events"]], ["Live Music at Masa's"])
+        self.assertEqual(self.events(day="saturday", query="masas")["found"], "1 event matching masas")
+        self.assertEqual(self.events(day="tomorrow", query="fireworks"), {
+            "when": "tomorrow", "found": "Nothing matching fireworks on the Sun Peaks events calendar tomorrow.",
+            "next": "New Year's Fireworks, Thursday December 31 at 9 pm, at Village"})
+        self.assertNotIn("next", self.events(query="kids"))
+
+    def test_days_and_dates(self):
+        local = self.now.replace(tzinfo=None)
+        midnight = local.replace(hour=0)
+        cases = {
+            "tomorrow night": (midnight + datetime.timedelta(hours=41), midnight + datetime.timedelta(hours=52),
+                               "tomorrow night"),
+            "Sunday": (midnight + datetime.timedelta(days=2), midnight + datetime.timedelta(days=3), "Sunday"),
+            "december 31st": (datetime.datetime(2026, 12, 31), datetime.datetime(2027, 1, 1),
+                              "Thursday December 31"),
+            "this week": (local, midnight + datetime.timedelta(days=7), "the next 7 days"),
+        }
+        for text, expected in cases.items():
+            with self.subTest(text=text):
+                self.assertEqual(assistant.window(text, None, local), expected)
+        self.assertEqual(assistant.window("", 3, local), (local, midnight + datetime.timedelta(days=3),
+                                                          "the next 3 days"))
+        self.assertEqual(self.events(days=14)["found"], "4 events")
+        self.assertTrue(self.error(day="whenever").startswith("I can't tell which day 'whenever' is"))
+        self.assertTrue(self.error(day="this morning").startswith("This morning is already over"))
+
+    def test_loading_and_stale(self):
+        assistant.save(EVENTS, self.now - datetime.timedelta(days=3))
+        self.assertEqual(self.events(day="tonight")["note"], "The events list was last updated 3 days ago.")
+        assistant.save(EVENTS, self.now - datetime.timedelta(days=15))
+        self.assertEqual(self.error(), "The Sun Peaks events list hasn't updated in 15 days, so I can't say what's on.")
+        storage.app_state(refresh.APP_ID).delete(assistant.EVENTS)
+        self.assertEqual(self.error(), assistant.LOADING)
+        self.refresh_async.assert_called()
+
+    def test_refresh_saves_events_for_the_assistant(self):
+        storage.app_state(refresh.APP_ID).delete(assistant.EVENTS)
+        self.broker.set_manifest_shares("sunpeaks_events", SHARES)
+        with tempfile.TemporaryDirectory() as d:
+            refresh.refresh(FakeFetcher(), d, NOW)
+        saved = storage.app_state(refresh.APP_ID).get(assistant.EVENTS)
+        self.assertEqual(saved["saved"], NOW.isoformat())
+        parade = next(e for e in saved["events"] if e["title"] == "Torchlight Parade")
+        self.assertEqual(parade["times"], [["2026-12-31T20:00:00-07:00", "2026-12-31T21:00:00-07:00"]])
+        market = next(e for e in saved["events"] if e["title"] == "Artisan Market")
+        self.assertEqual(market["times"], [["2026-12-11", "2026-12-13"]])
+        self.assertEqual(market["price"], "Free")

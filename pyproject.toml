@@ -4,13 +4,13 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "bdh-app-sunpeaks-events"
-version = "1.1.0b1"
+version = "1.2.0b1"
 description = "Black Diamond Hub app: Sun Peaks Resort events as a shareable calendar feed"
 readme = "README.md"
 license = { text = "MIT" }
 requires-python = ">=3.11"
 dependencies = [
-    "bdh-sdk>=0.37,<1",
+    "bdh-sdk>=0.46,<1",
     "beautifulsoup4",
     "requests",
     "Pillow",

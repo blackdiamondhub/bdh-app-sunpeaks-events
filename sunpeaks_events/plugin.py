@@ -20,6 +20,9 @@ spec = PluginSpec(
     # The date of the resort's "Winter Opening Day" event, so the hub can
     # count down to it.
     provides={SEASON: "sunpeaks_events.provides.season"},
+    # The assistant's "what's on?" lookup (read-only, every mode).
+    tools="sunpeaks_events.assistant.tools",
+    run_tool="sunpeaks_events.assistant.run_tool",
     api_version=2,
     # No hub data needed.
     permissions=(),
