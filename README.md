@@ -75,6 +75,22 @@ its status hook every `wake_every` (3 h), which wakes it to refresh.
 entries and pictures, the share revision and the last error. Admins get a
 **Refresh now** button.
 
+## Assistant tools
+
+The hub's assistant (e.g. the voice app) can ask what's on through one read-only tool, offered
+in every mode (guest, dashboard and owner). The hub only offers it when `sunpeaks_events` is in
+its `assistant_apps` setting (Settings > Location > Assistant).
+
+| Tool | Params (all optional) | Answers |
+|---|---|---|
+| `events` | `day` (today, tonight, tomorrow night, saturday, weekend, this week, December 31), `days` (1-14 from today), `query` (words from the title, venue or kind: music, market, Masa's) | How many events, then up to 5 in time order with when ("tonight 7 pm to 8 pm", "on now until 8 pm", "all day Sunday"; repeats of one event grouped) and where; with 3 or fewer, also the price and a short description. The rest by title. Nothing found gives the next matching event |
+
+Each refresh saves a compact copy of the scraped events (app state key `events`) for the tool.
+With no `day` it answers for the rest of today and tonight; "tonight" is 5 pm to 4 am and leaves
+out all-day events, whose hours come from the event's schedule rows when they name the day.
+The weekend starts Friday at 5 pm. Times are lodge time (UTC-7 all year). Before the first
+refresh the tool says the list is still loading; a copy more than two days old comes with a
+note, and one more than two weeks old is refused.
 ## Container (hub API 2)
 
 No broker permissions (sharing needs none), `network: outbound`

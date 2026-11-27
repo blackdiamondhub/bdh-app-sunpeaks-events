@@ -14,7 +14,7 @@ import threading
 from bdh_sdk import shares
 from bdh_sdk.storage import app_state
 
-from . import ics, images, scraper
+from . import assistant, ics, images, scraper
 
 log = logging.getLogger(__name__)
 
@@ -108,6 +108,10 @@ def _refresh(fetcher, image_dir, now):
         return _save(last_error="No events found on the events page; the site may have changed.")
     day = opening_day(events)
     _save(opens_on=day.isoformat() if day else "")
+    try:
+        assistant.save(events, now)  # what the assistant's events tool answers from
+    except Exception:
+        log.exception("sunpeaks_events: saving events for the assistant failed")
 
     attachments, keys, sizes = {}, {}, []
     for event in events:
